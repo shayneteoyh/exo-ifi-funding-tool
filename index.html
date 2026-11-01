@@ -118,6 +118,10 @@ a{color:var(--accent)}
   font-size:9px;font-weight:700;cursor:pointer;background:none;border:0;padding:0;font-family:inherit}
 .stops .pin::before{content:"";position:absolute;left:50%;top:-19px;width:1px;height:16px;background:var(--accent);opacity:.5}
 .stops .pin:hover{text-decoration:underline}
+/* a label that would collide with its neighbour drops to a second line on a longer stem */
+.stops.two{min-height:38px}
+.stops .pin.low{top:26px}
+.stops .pin.low::before{top:-32px;height:29px}
 .lvrst{appearance:none;background:none;border:0;color:var(--muted);font-size:13px;line-height:1;
   cursor:pointer;padding:2px 3px;border-radius:2px}
 .lvrst:hover{color:var(--accent);background:var(--surface-2)}
@@ -488,7 +492,7 @@ footer.foot b{color:var(--ink-2)}
     <p class="printonly" id="print-stamp" style="font-size:8pt;color:#555;margin-top:4pt"></p>
     <div class="stressbar">
       <section class="sb" id="sb-returns">
-        <h2>Stress test &mdash; Policy returns</h2>
+        <h2>Stress test<span id="sb-returns-n"></span> &mdash; Policy returns</h2>
         <div class="sb-levers">
 
           <div class="fxslider" id="rateslider">
@@ -669,7 +673,7 @@ footer.foot b{color:var(--ink-2)}
     </div>
 
     <div class="panel">
-      <div class="hd"><span class="step">C</span><h2>Rates &amp; FX</h2><span class="note" id="fx-date">1 Nov 2026</span></div>
+      <div class="hd"><span class="step">C</span><h2>Rates &amp; FX</h2><span class="note" id="fx-date">1 Nov 2026</span><a class="srcl" href="https://www.ifastgm.com.sg/igm/adviser/cash-solutions/product-financing" target="_blank" rel="noopener" title="iFAST product-financing margin rates">iFAST rates &#8599;</a></div>
       <div class="bd stack">
         <div style="overflow-x:auto">
           <table class="fx" id="fx-table">
@@ -751,9 +755,9 @@ footer.foot b{color:var(--ink-2)}
 <div id="gate" hidden>
   <div class="card">
     <h2>Adviser access</h2>
-    <p>This working tool is for licensed advisers. Enter the passphrase to continue.</p>
+    <p>This working tool is for licensed advisers. Enter the password to continue.</p>
     <form class="row" id="gate-form">
-      <input type="password" id="gate-pw" autocomplete="current-password" aria-label="Passphrase" placeholder="Passphrase">
+      <input type="password" id="gate-pw" autocomplete="current-password" aria-label="Password" placeholder="Password">
       <button type="submit">Open</button>
     </form>
     <div class="err" id="gate-err" role="alert"></div>
@@ -836,7 +840,24 @@ function stops(uiSel, listSel, inputSel, lo, hi, pins, fmt){
     input.value = btn.dataset.snap;
     input.dispatchEvent(new Event("input",{bubbles:true}));
   }));
+  laneStops(ui);
 }
+/* Two reference levels close together put their labels on top of each other. Walk the
+   pins left to right and drop any that would touch the one before it onto a second line.
+   Needs real widths, so it is re-run on resize; a hidden lever measures zero and is left. */
+function laneStops(ui){
+  const pins = [...ui.querySelectorAll(".pin")];
+  pins.forEach(p=>p.classList.remove("low"));
+  ui.classList.remove("two");
+  if(!ui.offsetWidth) return;
+  const ends = [-Infinity, -Infinity];             /* right edge of the last label on each line */
+  pins.map(p=>({p, r:p.getBoundingClientRect()})).sort((a,b)=>a.r.left-b.r.left).forEach(({p,r})=>{
+    const lane = r.left >= ends[0]+6 ? 0 : 1;
+    if(lane){ p.classList.add("low"); ui.classList.add("two"); }
+    ends[lane] = r.right;
+  });
+}
+addEventListener("resize", ()=>document.querySelectorAll(".stops").forEach(laneStops));
 /* catch a drag that passes within a hair of a detent */
 function snapped(input){
   const v = num(input.value), list = SNAP[input.id] || [];
@@ -1409,7 +1430,7 @@ function initGate(){
   $("#gate-form").addEventListener("submit", e=>{
     e.preventDefault();
     if(h53($("#gate-pw").value.trim(), 7319) === GATE_DIGEST) return unlock();
-    $("#gate-err").textContent = "Not recognised — check the passphrase and try again.";
+    $("#gate-err").textContent = "Not recognised — check the password and try again.";
     $("#gate-pw").select();
   });
 }
@@ -1474,7 +1495,7 @@ function render(){
     + `<b>${route==="property" ? sgd(z.loanSGD) : loc(ccy.c, P.loanLocal)}</b> loan at ${(P.rate*100).toFixed(2)}%`
     + (S.mode==="inc" && incYr ? ` · income from year ${incYr}` : ``);
 
-  const irrTxt = P.irrFin!=null ? pct(P.irrFin) : "n/a";
+  const irrTxt = P.irrFin!=null ? pct(P.irrFin)+" p.a." : "n/a";
   const irrSub = route==="portfolio" ? `on the ${usd(P.cumInt)} of interest paid, with the policy as the return`
                : route==="policy"    ? `on the ${usd(P.outlay)} put in plus the interest paid`
                                      : `on the servicing actually paid`;
@@ -1483,7 +1504,7 @@ function render(){
      sub:route==="portfolio" ? loc(ccyOf(S.pf.ccy).c, P.loanLocal) : `on a ${usd(z.premium)} premium`},
     {k:"Policy value less loan", v:usd(P.netFin), sub:`at year ${T}`,
      hero:true, cls:P.netFin>=0?"up":"down"},
-    {k:"Return on interest paid", v:irrTxt, sub:irrSub},
+    {k:"Annualised return on interest paid", v:irrTxt, sub:irrSub},
   ];
   $("#tiles").innerHTML = tiles.map(t=>
     `<div class="tile${t.hero?" hero":""}"><div class="k">${t.k}</div><div class="v ${t.cls?"delta "+t.cls:""}">${t.v}</div><div class="sub">${t.sub}</div></div>`).join("");
@@ -1700,6 +1721,7 @@ function render(){
   const haveMargin = route==="portfolio";
   $("#sb-margin").hidden = !haveMargin;
   $("#sb-returns").classList.toggle("solo", !haveMargin);
+  $("#sb-returns-n").textContent = haveMargin ? " 1" : "";
   if(haveMargin){
     const refC = P.refC;
     $("#fxs-pair").textContent = `${ccy.c}/${refC}`;
