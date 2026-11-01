@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: "0 1 * * *"   # 09:00 Singapore time, daily
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [index.html]
 
 permissions:
   contents: write
@@ -24,3 +27,16 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "Update iFAST margin and FX rates"
           git push
+      # Cloudflare Pages (exo-ifi-funding-tool.pages.dev) is a direct-upload project, so it
+      # only changes when something uploads to it. Only the page itself is published there.
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "Cloudflare secrets not set; skipping"; exit 0
+          fi
+          mkdir -p _site && cp index.html _site/
+          npx --yes wrangler@3 pages deploy _site --project-name=exo-ifi-funding-tool \
+            --branch=main --commit-dirty=true
