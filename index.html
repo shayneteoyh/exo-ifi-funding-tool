@@ -1741,13 +1741,15 @@ function render(){
   const uOut=$("#fxu-val");
   uOut.textContent = pctS(S.fxUsd/100,1).replace("%","% p.a.");
   uOut.className = "fxs-val"+(P.netFin<0?" crit":"");
-  const spotU = ccy.fx, dpu = spotU>20 ? 2 : 4;
+  /* quoted as one unit of the funding currency, the way the drift is expressed; a weak
+     currency like JPY needs more places to show anything */
+  const spotU = 1/ccy.fx, dpu = spotU<0.1 ? 6 : 4;
   stops("#fxu-stops-ui","#fxu-stops","#fxusd", -6, 6,
     P.noFxU ? [] : [{v:clamp(ccy.drift10,-6,6), label:`10y avg ${pctS(ccy.drift10/100,2)}`}],
     v=>pctS(v/100,2)+" p.a.");
   $("#fxu-read").innerHTML = P.noFxU
     ? `Drawn in USD — no exposure to the policy's currency.`
-    : `1 USD = <b>${(spotU/(1+P.shockU)).toFixed(dpu)} ${ccy.c}</b>`
+    : `1 ${ccy.c} = <b>${(spotU*(1+P.shockU)).toFixed(dpu)} USD</b>`
       + (Math.abs(P.shockU)>1e-9?` by year ${T}, from ${spotU.toFixed(dpu)}`:``)
       + ` · <a class="srcl" href="${fxUrl(ccy.c,"USD")}" target="_blank" rel="noopener">history</a>`;
 
@@ -1764,14 +1766,14 @@ function render(){
     const vOut=$("#fxs-val");
     vOut.textContent = pctS(S.pf.fxColl/100,1).replace("%","% p.a.");
     vOut.className = "fxs-val"+(P.forced?" crit":P.call?" warn":"");
-    const spotX = cross(ccy.c, refC), dp = spotX>20 ? 2 : 4;
+    const spotX = 1/cross(ccy.c, refC), dp = spotX<0.1 ? 6 : 4;
     const d20 = drift(ccy.c, refC)*100;   /* ten-year, from the per-USD drifts */
     stops("#fxs-stops-ui","#fxs-stops","#fxshock", -6, 6,
       P.noFx ? [] : [{v:clamp(d20,-6,6), label:`10y avg ${pctS(d20/100,2)}`}],
       v=>pctS(v/100,2)+" p.a.");
     $("#fxs-read").innerHTML = P.noFx
       ? `Facility and collateral are both ${refC} — no exposure on this leg.`
-      : `1 ${refC} = <b>${(spotX/(1+P.shock)).toFixed(dp)} ${ccy.c}</b>`
+      : `1 ${ccy.c} = <b>${(spotX*(1+P.shock)).toFixed(dp)} ${refC}</b>`
         + (Math.abs(P.shock)>1e-9?` by year ${T}, from ${spotX.toFixed(dp)}`:``)
         + ` · <a class="srcl" href="${fxUrl(ccy.c,refC)}" target="_blank" rel="noopener">history</a>`;
     $("#pfd-val").textContent = (S.pf.drop>0?"\u2212":"")+S.pf.drop.toFixed(1)+"%";
