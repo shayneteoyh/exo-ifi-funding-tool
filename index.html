@@ -227,8 +227,8 @@ details.fallback summary{cursor:pointer;font-size:12px;color:var(--muted);font-w
 details.fallback textarea{width:100%;min-height:90px;margin-top:9px;padding:8px;font-family:ui-monospace,Menlo,monospace;font-size:11px;background:var(--surface-2);border:1px solid var(--rule-strong);border-radius:var(--r);resize:vertical}
 
 /* ---------- tiles ---------- */
-/* six tiles, so the column count divides cleanly and never leaves an empty cell */
-.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:var(--r);overflow:hidden}
+/* four tiles: one row on desktop, two by two on tablets, stacked on phones */
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:var(--r);overflow:hidden}
 @media (max-width:760px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .tile{padding:9px 14px 10px}
 /* the figures sit directly above the charts they summarise, so no gutter between */
@@ -405,7 +405,7 @@ body.locked>header,body.locked>.wrap{filter:blur(16px);opacity:.5;pointer-events
   .yrpick input{border:0!important;background:none!important;font-size:13pt!important;width:auto!important;padding:0!important}
 
   /* figures: one boxed row */
-  .tiles{break-inside:avoid;grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  .tiles{break-inside:avoid;grid-template-columns:repeat(4,minmax(0,1fr))!important;
     border:0.7pt solid #c9cdd4!important;background:#c9cdd4!important;gap:0.7pt!important}
   .tile{padding:8pt 10pt!important;background:#fff!important}
   .tile.hero{background:#fdf6f4!important}
@@ -623,7 +623,6 @@ footer.foot b{color:var(--ink-2)}
           <div class="field" id="wrap-outlay"><label for="outlay">Client's cash outlay US$</label><input type="number" id="outlay" step="1000"></div>
           <div class="field" id="wrap-ltv"><label for="ltv">LTV on day-1 CV %</label><input type="number" id="ltv" step="1" min="0" max="90"></div>
           <div class="field"><label for="day1">Day-1 cash value US$</label><input type="number" id="day1" step="1000"></div>
-          <div class="field"><label for="repay">Repay from income, last yrs</label><input type="number" id="repay" class="repay-yrs" step="1" min="0" placeholder="0 — at exit"></div>
         </div>
         <div class="hint" id="loan-hint"></div>
       </div>
@@ -644,7 +643,6 @@ footer.foot b{color:var(--ink-2)}
           <div class="field"><label for="pf-loanccy">In currency</label><select id="pf-loanccy"></select></div>
           <div class="field"><label for="pf-growth">Portfolio returns %</label><input type="number" id="pf-growth" step="0.1"></div>
           <div class="field"><label for="pf-rate">Loan interest rate %</label><input type="number" id="pf-rate" step="0.01"></div>
-          <div class="field"><label for="pf-repay">Repay from income, last yrs</label><input type="number" id="pf-repay" class="repay-yrs" step="1" min="0" placeholder="0 — at exit"></div>
         </div>
         <div class="hint" id="pf-hint"></div>
       </div>
@@ -895,13 +893,11 @@ function bindTips(){
   addEventListener("scroll", hide, true);
   addEventListener("blur", hide);
 }
-const IRR_TIP = "<b>The modified internal rate of return (MIRR) if the client exited that year.</b><br><br>"
-  + "Built from the client's own cash flows: their capital in at the start, then each year's policy income less what is paid to the lender, and in the exit year the policy's cash value less whatever loan is still owed.<br><br>"
-  + "Every year the client pays in is discounted to today at the loan interest rate. Every year that pays out is assumed to be reinvested until the exit year — at the portfolio return on route 2, at the loan interest rate elsewhere. "
-  + "The MIRR is the yearly rate that turns the first into the second. Unlike a plain IRR it does not assume payouts are reinvested at the IRR itself, and it always has one answer.<br><br>"
-  + "Blank where the client has put nothing in, or taken nothing out, by that year.";
+const CASH_TIP = "<b>Policy value less loan + total net income received to date</b><br><br>"
+  + "What the client would walk away with on surrendering in that year: the policy's cash value less the loan still owed, plus every year's net income (policy income less interest) received up to then.<br><br>"
+  + "Years where the income fell short of the interest are cash the client put in, not income taken, so they count in the total cash outlay rather than here. The total net cash received tile shows the same figure for the chosen policy year.";
 const YIELD_TIP ="<b>Net income for the year &divide; total interest paid to date &times; 100%</b><br><br>"
-  + "Net income is that year's policy payout less that year's interest and any loan repayment. The denominator is every dollar of interest handed to the lender since inception, so the measure asks what this year's income is returning on the whole cost of the borrowing to date.<br><br>"
+  + "Net income is that year's policy payout less that year's interest. The denominator is every dollar of interest handed to the lender since inception, so the measure asks what this year's income is returning on the whole cost of the borrowing to date.<br><br>"
   + "It is negative while the policy is still deferring income, turns positive on the first payout year that clears the interest, then settles as a flat interest bill accumulates against a payout that grows.";
 /* Each route carries its own illustration. Route 1 part-funds its policy — the client keys in
    the cash outlay and the facility covers the rest. Routes 2 and 3 borrow the whole premium. */
@@ -947,13 +943,10 @@ const S = {
   /* fxUsd is the POLICY leg (facility vs USD) and is the only FX lever on routes 1 and 3.
      rateShock moves the all-in rate in percentage points. */
   fxUsd:0, rateShock:0, ledgerAll:false,
-  /* routes 1 and 2: repay the facility out of policy income, evenly over the last `repay`
-     years up to the horizon; 0 leaves it outstanding until the exit year */
-  repay:0,
   /* route 1 */
   ccy:"CHF", spread:1.50, cof:0, sizeMode:"outlay", outlay:100000, ltv:90, day1:0,
   /* route 2 */
-  pf:{value:500000, valCcy:"SGD", ltv:71.43, factor:95.99, growth:5, income:0, ccy:"CHF", rate:1.70,
+  pf:{value:500000, valCcy:"SGD", ltv:71.43, factor:95.99, growth:6, income:0, ccy:"CHF", rate:1.70,
       loan:0, sizeMode:"loan", res:"sg", drop:0, fxColl:0},
   /* route 3 */
   pr:{val:2000000, out:500000, cpf:500000, ltvCap:75, rate:1.60, tenure:25,
@@ -978,21 +971,6 @@ const shortUSD = v => { const a=Math.abs(v), s=v<0?"−":"";
   if(a>=1e6) return s+"$"+(a/1e6).toFixed(a>=1e7?1:2)+"m";
   if(a>=1e3) return s+"$"+Math.round(a/1e3)+"k"; return s+"$"+Math.round(a); };
 
-/* Modified IRR: money paid in is discounted to year 0 at `fin`, money paid out is compounded
-   to the last year at `reinv`, and the rate is what grows the one into the other. Unlike a
-   plain IRR it has one answer whatever the pattern of signs — the case where the policy has
-   paid itself out and the client must find the balance of the loan at the end — and it does
-   not assume every payout is reinvested at the IRR itself. */
-function mirr(cf, fin, reinv){
-  const n = cf.length - 1;
-  if(n<1) return null;
-  let pv=0, fv=0;
-  cf.forEach((c,t)=>{ if(c<0) pv -= c/Math.pow(1+fin,t); else fv += c*Math.pow(1+reinv,n-t); });
-  if(pv<1e-6 || fv<1e-6) return null;
-  return Math.pow(fv/pv, 1/n) - 1;
-}
-/* the client's own money in, nominal: every flow that went from them rather than to them */
-const cashOut = cf => cf.reduce((s,c)=>s+(c<0?-c:0),0);
 /* level monthly instalment; i = monthly rate, n = months */
 const pmt = (P,i,n) => i<=0 ? P/n : P*i/(1-Math.pow(1+i,-n));
 const pvAnnuity = (A,i,n) => i<=0 ? A*n : A*(1-Math.pow(1+i,-n))/i;
@@ -1190,13 +1168,6 @@ function project(route, over){
     }
   }
 
-  /* Routes 1 and 2 can retire the facility out of policy income: an equal slice of the
-     principal in each of the last `nRep` years up to the horizon, fixed in the funding
-     currency, so the facility is clear by the exit year. `owed(t)` is the share of the
-     principal still outstanding at the end of year t. */
-  const nRep = route==="property" ? 0 : Math.min(T, Math.max(0, S.repay||0));
-  const repFrom = T - nRep + 1;
-  const owed = t => nRep && t>=repFrom ? Math.max(0, 1 - (t-repFrom+1)/nRep) : 1;
 
   const rows=[]; let cum=0, cumInt=0, cumPrin=0, cumInc=0, cumCarry=0, cumPfInc=0, cumIntL=0, cumPrinL=0, cumIncL=0;
   for(let t=1;t<=Math.min(finS.length,80); t++){
@@ -1216,14 +1187,12 @@ function project(route, over){
       /* The principal actually drawn is fixed in the funding currency — that is the sum the
          bank hands over, and no exchange-rate move changes it. What moves is what it is
          worth in USD when the policy has to repay it. */
-      const drawn = z.loan * ccyOf(z.ccy).fx, o0 = owed(t-1), o1 = owed(t);
-      balLocal  = drawn * o1;
-      intLocal  = drawn * o0 * rate;                /* charged on what was owed through the year */
-      prinLocal = drawn * (o0 - o1);
-      openUSD   = z.loan * (1+cU(t)) * o0;
-      closeUSD  = z.loan * (1+cU(t)) * o1;
+      const drawn = z.loan * ccyOf(z.ccy).fx;
+      balLocal  = drawn;
+      intLocal  = drawn * rate;
+      openUSD   = z.loan * (1+cU(t));
+      closeUSD  = openUSD;
       interest  = openUSD * rate;
-      principal = openUSD - closeUSD;               /* the slice repaid, at this year's exchange rate */
     }
     const income = f.income;
     /* route 2: the portfolio distributes cash, and that is what the interest is serviced from.
@@ -1251,7 +1220,7 @@ function project(route, over){
       const collateral = other * (S.pf.ltv/100);
       /* debt and collateral both measured in the collateral currency, so this is the
          funding-vs-collateral leg only — the policy leg does not enter a margin call */
-      risk = collateral>0 ? z.loan*(1+cC(t))*owed(t)/collateral : 0;
+      risk = collateral>0 ? z.loan*(1+cC(t))/collateral : 0;
       callAt = S.pf.res==="sg" ? 1.00 : 0.80; hardAt = 1.20;
     }else{
       const allowSGD = Math.max(0, S.pr.income*0.55 - S.pr.debt)*12;
@@ -1259,7 +1228,7 @@ function project(route, over){
       callAt = 1.00; hardAt = 1.00;
     }
     rows.push({y:f.y, age:f.age, cv, db:f.db*cvMult, loan:closeUSD, balLocal,
-               loanColl: route==="property" ? balLocal : z.loan*(1+cC(t))*owed(t), interest, principal,
+               loanColl: route==="property" ? balLocal : z.loan*(1+cC(t)), interest, principal,
                income, incomeLocal, intLocal, prinLocal, instLocal, pfIncome, carry, net,
                cum, cumInt, cumPrin, cumIntL, cumPrinL, cumIncL,
                cumCost:cumInt+cumPrin, cumCarry, cumPfInc, cumInc, other, risk, callAt, hardAt,
@@ -1267,15 +1236,6 @@ function project(route, over){
   }
 
   const rT = rows[T-1] || rows[rows.length-1];
-  const cfFin=[-outlay];
-  for(let t=1;t<=T;t++){
-    const r=rows[t-1];
-    let a=r.net;
-    if(t===T) a += r.cv - r.loan;
-    cfFin.push(a);
-  }
-  const reinv = route==="portfolio" ? S.pf.growth/100 : rate;
-  /* the portfolio is owned either way, so it is not part of the financed-vs-cash cashflow */
   const call   = rows.find(r=>r.risk>=r.callAt);
   const forced = rows.find(r=>r.risk>=r.hardAt);
   const netFin = rT ? rT.cv - rT.loan : 0;
@@ -1288,14 +1248,8 @@ function project(route, over){
 
   return {
     route, rows, T, z, rate, aC, aU, shock:cC(T), shockU:cU(T), noFx, noFxU, refC, outlay, premium, amort,
-    nRep, repFrom,
     loanLocal: z.loan * ccyOf(z.ccy).fx,     /* the facility in the currency it is drawn in */
     intLocal1: z.loan * ccyOf(z.ccy).fx * rate,
-    /* payouts are reinvested at the portfolio's return where there is a portfolio to put them
-       in; elsewhere at the loan rate, i.e. they could have paid the facility down */
-    reinv,
-    irrFin: mirr(cfFin, rate, reinv),
-    cashOut: cashOut(cfFin),
     netFin,
     profitFin: -outlay + (rT?rT.cum:0) + netFin,
     cumCost: rT?rT.cumCost:0, cumInt: rT?rT.cumInt:0, cumPrin: rT?rT.cumPrin:0,
@@ -1560,19 +1514,26 @@ function render(){
     + `<b>${route==="property" ? sgd(z.loanSGD) : loc(ccy.c, P.loanLocal)}</b> loan at ${(P.rate*100).toFixed(2)}%`
     + (S.mode==="inc" && incYr ? ` · income from year ${incYr}` : ``);
 
-  const irrTxt = P.irrFin!=null ? pct(P.irrFin)+" p.a." : "n/a";
-  /* the base is what the client actually paid from their own pocket, exit shortfall included */
-  const irrSub = `on ${usd(P.cashOut)} of net cash outlay — `
-    + (route==="policy"   ? `the cash put in plus costs the policy income did not cover`
-     : route==="property" ? `repayments the policy income did not cover`
-                          : `interest the policy income did not cover`)
-    + `. MIRR, payouts reinvested at ${(P.reinv*100).toFixed(2)}% p.a.`;
+  /* Net income is policy income less what is paid to the lender. The years it falls short
+     are cash the client puts in, so they count in the outlay; the years it runs ahead are
+     cash received. Splitting them this way keeps the two tiles from overlapping. */
+  const rowsT0 = P.rows.slice(0,T);
+  const shortfall = rowsT0.reduce((s,r)=>s+Math.max(0,-r.net),0);
+  const netRecv   = rowsT0.reduce((s,r)=>s+Math.max(0, r.net),0);
+  const ownOut = P.outlay + shortfall;
+  const cashBack = P.netFin + netRecv;
+  const outSub = [P.outlay>0 ? `${usd(P.outlay)} ${route==="policy"?"put in at the start":"of premium and costs not borrowed"}` : ``,
+                  shortfall>0 ? `${usd(shortfall)} of ${route==="property"?"repayments":"interest"} the policy income did not cover` : ``]
+                 .filter(Boolean).join(" + ") || `none — the loan and the policy income cover everything`;
+  const multX = m => (Math.abs(m)>=100 ? Math.round(m).toLocaleString("en-US") : m.toFixed(Math.abs(m)>=10?1:2)) + "\u00d7";
   const tiles = [
-    {k:"Loan", v:route==="property"?sgd(z.loanSGD):usd(z.loan),
-     sub:route==="portfolio" ? loc(ccyOf(S.pf.ccy).c, P.loanLocal) : `on a ${usd(z.premium)} premium`},
-    {k:"Policy value less loan", v:usd(P.netFin), sub:`at year ${T}`,
-     hero:true, cls:P.netFin>=0?"up":"down"},
-    {k:"Annualised return on net cash outlay", v:irrTxt, sub:irrSub},
+    {k:"Total cash outlay", v:usd(ownOut), sub:outSub},
+    {k:"Policy value less loan", v:usd(P.netFin), sub:`at year ${T}`, cls:P.netFin>=0?"up":"down"},
+    {k:"Total net cash received", v:usd(cashBack),
+     sub:`policy value less loan, plus ${usd(netRecv)} of net income over ${T} years`,
+     hero:true, cls:cashBack>=0?"up":"down"},
+    {k:"Multiplier", v: ownOut>0 ? multX(cashBack/ownOut) : "n/a",
+     sub: ownOut>0 ? `total net cash received for every $1 of total cash outlay` : `no cash outlay to measure against`},
   ];
   $("#tiles").innerHTML = tiles.map(t=>
     `<div class="tile${t.hero?" hero":""}"><div class="k">${t.k}</div><div class="v ${t.cls?"delta "+t.cls:""}">${t.v}</div><div class="sub">${t.sub}</div></div>`).join("");
@@ -1594,15 +1555,16 @@ function render(){
   const xs=P.rows.slice(0,T).map(r=>r.y);
   const rowsT = P.rows.slice(0,T);
   const vCV=rowsT.map(r=>r.cv), vL=rowsT.map(r=>r.loan);
-  /* Cash value plus every payout taken to date — what the client has actually received
-     and still holds, which is the fairer measure once income is running. */
-  const vTot=rowsT.map(r=>r.cv + r.cumInc);
-  const netHits = rowsT.map(r=>
+  /* Cash value plus the net income received to date (policy income less interest, in the
+     years it came out ahead) — the received tile's basis. */
+  let run=0; const cumNet=rowsT.map(r=>run+=Math.max(0, r.net));
+  const vTot=rowsT.map((r,i)=>r.cv + cumNet[i]);
+  const netHits = rowsT.map((r,i)=>
     `<b>Year ${r.y}, age ${r.age}</b><br>`
     + `Policy value <b>${usd(r.cv)}</b> less loan ${usd(r.loan)} = <b>${usd(r.cv-r.loan)}</b><br>`
-    + (r.cumInc>0
-        ? `With payouts taken (${usd(r.cumInc)}) less loan = <b>${usd(r.cv+r.cumInc-r.loan)}</b>`
-        : `No payouts taken yet`));
+    + (cumNet[i]>0
+        ? `Plus net income received (${usd(cumNet[i])}) = <b>${usd(r.cv+cumNet[i]-r.loan)}</b>`
+        : `No net income received yet`));
   svgLine($("#chart-net"),{
     x:xs, h:280, ymin:0, hits:netHits,
     series:[{v:vL,color:cBase,label:"loan"},
@@ -1610,7 +1572,7 @@ function render(){
             S.mode==="inc" ? [{v:vTot,color:cAlt,label:"+ net income",up:true,dash:true}] : []),
     fy:shortUSD, fx:v=>"Yr "+v,
     xticks: xs.filter((v,i)=>i===0||v%5===0||i===xs.length-1),
-    aria:"Policy cash value, cash value plus payouts taken, and the outstanding facility by policy year"
+    aria:"Policy cash value, cash value plus net income received, and the outstanding facility by policy year"
   });
   $("#net-legend").innerHTML = `<span><i class="swatch" style="background:var(--s-fin)"></i>Policy cash value</span>`
     + (S.mode==="inc" ? `<span><i class="swatch" style="background:var(--s-alt)"></i>Net income</span>` : ``)
@@ -1625,12 +1587,10 @@ function render(){
   const incRows = P.rows.slice(0, T).map(r=>({
     y:r.y,
     income:   isProp3 ? r.incomeLocal : r.income,
-    /* the mortgage route repays principal as it goes, and routes 1 and 2 may repay it from
-       income at the end, so the bar stands the income against everything paid to the lender
-       that year — same basis as the ledger's net income column */
-    interest: isProp3 ? r.intLocal + r.prinLocal : r.interest + r.principal
+    /* the mortgage route repays principal as it goes, so the bar stands the income against
+       everything paid to the lender that year — same basis as the ledger's net income column */
+    interest: isProp3 ? r.intLocal + r.prinLocal : r.interest
   }));
-  const repays = !isProp3 && P.nRep>0;
   const anyInc = incRows.some(r=>r.income>0);
   $("#inc-card").hidden = !anyInc;
   if(anyInc){
@@ -1648,7 +1608,7 @@ function render(){
       const net = r.income - r.interest, cur = isProp3 ? "S$" : "$";
       return `<b>Year ${r.y}</b><br>`
         + `Policy income ${isProp3?sgd(r.income):usd(r.income)}<br>`
-        + `less ${isProp3?"loan repayment "+sgd(r.interest):(repays?"interest and repayment ":"interest ")+usd(r.interest)}<br>`
+        + `less ${isProp3?"loan repayment "+sgd(r.interest):"interest "+usd(r.interest)}<br>`
         + `<b>Net income ${isProp3?sgd(net):usd(net)}</b>`
         + (yld[i]!=null ? `<br>Yield ${fyPct(yld[i])}` : ``)
         + (net<0 ? `<br>funded out of pocket this year` : ``);
@@ -1665,21 +1625,20 @@ function render(){
       : `Payout never covers the ${isProp3?"repayment":"interest"} inside this horizon.`;
     $("#inc-legend").innerHTML =
       `<span><i class="swatch" style="background:var(--s-alt)"></i>Net income</span>`
-      + `<span><i class="swatch" style="background:var(--s-base);opacity:.85"></i>${isProp3?"Repayment":repays?"Interest and repayment":"Interest"} covered</span>`
+      + `<span><i class="swatch" style="background:var(--s-base);opacity:.85"></i>${isProp3?"Repayment":"Interest"} covered</span>`
       + (defer ? `<span><i class="swatch" style="background:var(--crit);opacity:.75"></i>Funded out of pocket</span>` : ``)
       + `<span><i class="swatch" style="background:repeating-linear-gradient(90deg,var(--ink-2) 0 3px,transparent 3px 6px)"></i>Yield % (right axis)</span>`;
   }
 
   /* ---- ledger ---- */
   const cols = route==="property"
-    ? ["Yr / age","Policy CV US$","Loan S$","CV net of loan US$","Loan repayment S$","Policy income S$","Net income S$","% Yield","MIRR if exited"]
+    ? ["Yr / age","Policy CV US$","Loan S$","CV net of loan US$","Loan repayment S$","Policy income S$","Net income S$","% Yield","Total net cash received US$"]
     : route==="portfolio"
-    ? ["Yr / age","Policy CV","Portfolio",`Loan ${ccy.c}`,"Loan US$","CV net of loan","Interest",...(repays?["Repaid"]:[]),"Policy income","Net income","% Yield","MIRR if exited","Margin","Status"]
-    : ["Yr / age","Policy CV","Loan US$","Interest",...(repays?["Repaid"]:[]),"Policy income","Net income","Cumulative","Policy net of loan","% Yield","MIRR if exited","Margin","Status"];
-  const repCell = r => repays ? [r.principal>0.5?`<span class="neg">−${fmt0(r.principal)}</span>`:"—"] : [];
+    ? ["Yr / age","Policy CV","Portfolio",`Loan ${ccy.c}`,"Loan US$","CV net of loan","Interest","Policy income","Net income","% Yield","Total net cash received","Margin","Status"]
+    : ["Yr / age","Policy CV","Loan US$","Interest","Policy income","Net income","Cumulative","Policy net of loan","% Yield","Total net cash received","Margin","Status"];
   $("#ledger-head").innerHTML = cols.map(c=>
     c==="% Yield"       ? `<th class="helpcol" tabindex="0" data-tip="${YIELD_TIP}">${c}</th>`
-  : c==="MIRR if exited" ? `<th class="helpcol" tabindex="0" data-tip="${IRR_TIP}">${c}</th>`
+  : c.startsWith("Total net cash") ? `<th class="helpcol" tabindex="0" data-tip="${CASH_TIP}">${c}</th>`
   : `<th>${c}</th>`).join("");
   /* Net income is the policy's own payout less the interest on the facility, for that year.
      The yield puts that single year against every dollar of interest paid since inception. */
@@ -1687,17 +1646,12 @@ function render(){
      that is what the policy income has to stand against */
   const netIncome = r => route==="property" ? r.incomeLocal - (r.intLocal + r.prinLocal)
                                             : r.income - r.interest - r.principal;
-  /* The MIRR of exiting in year t: capital in, the net flows up to t, and the policy net
-     of the loan collected in t. Solved per displayed row rather than inside project(),
-     which the stress tables call dozens of times per render. */
-  const irrAt = t => {
-    const cf=[-P.outlay];
-    for(let k=1;k<=t;k++){ const rk=P.rows[k-1]; let a=rk.net; if(k===t) a += rk.cv - rk.loan; cf.push(a); }
-    return mirr(cf, P.rate, P.reinv);
-  };
-  const irrCell = r => {
-    const v = irrAt(r.y);
-    return `<td>${v!=null?`<span class="${v<0?"neg":""}">${pct(v)}</span>`:"—"}</td>`;
+  /* What the client walks away with on surrendering in that year: the policy value less the
+     loan, plus the net income received to date — the same basis as the received tile. */
+  let recvRun=0; const recvTo = P.rows.map(r=>recvRun+=Math.max(0, r.net));
+  const cashCell = r => {
+    const v = r.cv - r.loan + recvTo[r.y-1];
+    return `<td><span class="${v<0?"neg":""}">${fmt0(v)}</span></td>`;
   };
   const yieldCell = r => {
     const ci = route==="property" ? r.cumIntL + r.cumPrinL : r.cumInt;
@@ -1726,23 +1680,23 @@ function render(){
            repay?`<span class="neg">−${fmt0(repay)}</span>`:"—",
            r.incomeLocal?fmt0(r.incomeLocal):"—",
            `<span class="${ni<0?"neg":""}">${fmt0(ni)}</span>`,
-           "%%YIELD%%", "%%IRR%%"]; })()
+           "%%YIELD%%", "%%CASH%%"]; })()
       : route==="portfolio"
       ? [`${r.y} / ${r.age}`, fmt0(r.cv), fmt0(r.other),
          fmt0(r.balLocal), fmt0(r.loan),
          `<span class="${(r.cv-r.loan)<0?"neg":""}">${fmt0(r.cv-r.loan)}</span>`,
-         r.interest?`<span class="neg">−${fmt0(r.interest)}</span>`:"—", ...repCell(r),
+         r.interest?`<span class="neg">−${fmt0(r.interest)}</span>`:"—", 
          r.income?fmt0(r.income):"—",
          `<span class="${netIncome(r)<0?"neg":""}">${fmt0(netIncome(r))}</span>`,
-         "%%YIELD%%", "%%IRR%%", (r.risk*100).toFixed(1)+"%"]
+         "%%YIELD%%", "%%CASH%%", (r.risk*100).toFixed(1)+"%"]
       : [`${r.y} / ${r.age}`, fmt0(r.cv), fmt0(r.loan),
-         r.interest?`<span class="neg">−${fmt0(r.interest)}</span>`:"—", ...repCell(r),
+         r.interest?`<span class="neg">−${fmt0(r.interest)}</span>`:"—", 
          r.income?fmt0(r.income):"—",
          `<span class="${netIncome(r)<0?"neg":""}">${fmt0(netIncome(r))}</span>`,
          `<span class="${r.cum<0?"neg":""}">${fmt0(r.cum)}</span>`,
          `<span class="${(r.cv-r.loan)<0?"neg":""}">${fmt0(r.cv-r.loan)}</span>`,
-         "%%YIELD%%", "%%IRR%%", (r.risk*100).toFixed(1)+"%"];
-    tr.innerHTML = cells.map(c=> c==="%%YIELD%%" ? yieldCell(r) : c==="%%IRR%%" ? irrCell(r) : `<td>${c}</td>`).join("")
+         "%%YIELD%%", "%%CASH%%", (r.risk*100).toFixed(1)+"%"];
+    tr.innerHTML = cells.map(c=> c==="%%YIELD%%" ? yieldCell(r) : c==="%%CASH%%" ? cashCell(r) : `<td>${c}</td>`).join("")
                  + (route==="property" ? `` : `<td><span class="pill ${st[0]}">${st[1]}</span></td>`);
     tb.appendChild(tr);
   });
@@ -1750,8 +1704,6 @@ function render(){
   $("#ledger-note").innerHTML = `<b>${S.basis}</b> basis${S.mode==="inc"?", income-payout table":""}`
     + (route==="property"
         ? ` · level instalment over ${S.pr.tenure} years at ${S.pr.rate}%, fixed in SGD`
-        : repays
-        ? ` · interest-only, 30/360 · principal repaid from policy income in equal parts, years ${P.repFrom}–${T}`
         : ` · interest-only, 30/360 · principal repaid out of the policy on surrender`);
 
   renderStress3(P);
@@ -2077,12 +2029,6 @@ function init(){
   bindNum("cof", v=>S.cof=v); bindNum("spread-custom", v=>S.spread=v);
   bindNum("outlay", v=>S.outlay=v); bindNum("ltv", v=>S.ltv=v); bindNum("day1", v=>S.day1=v);
   bindNum("horizon", v=>S.horizon=v);
-  /* the same setting is shown on both route 1 and route 2, so keep the two fields in step */
-  document.querySelectorAll(".repay-yrs").forEach(n=>n.addEventListener("input",e=>{
-    S.repay = Math.max(0, Math.round(num(e.target.value)));
-    document.querySelectorAll(".repay-yrs").forEach(o=>{ if(o!==e.target) o.value = e.target.value; });
-    render();
-  }));
   bindNum("pf-value", v=>S.pf.value=v); bindNum("pf-growth", v=>S.pf.growth=v);
   bindNum("pf-rate", v=>S.pf.rate=v); bindNum("pf-loan", v=>S.pf.loan=v);
   bindNum("pr-val", v=>S.pr.val=v); bindNum("pr-out", v=>S.pr.out=v); bindNum("pr-cpf", v=>S.pr.cpf=v);
