@@ -585,6 +585,10 @@ footer.foot b{color:var(--ink-2)}
           <label for="horizon">Horizon — policy year</label>
           <input type="number" id="horizon" step="1" min="1" max="80" value="20">
         </div>
+        <div class="field">
+          <label for="premium">Premium US$</label>
+          <input type="number" id="premium" step="10000" min="1">
+        </div>
         <div class="btnrow">
           <button class="btn" type="button" id="btn-sample">Reload sample</button>
         </div>
@@ -742,7 +746,7 @@ footer.foot b{color:var(--ink-2)}
       <h3>Disclaimers</h3>
       <div class="disc">
         <p><b>Illustration only — not advice.</b> This is a working tool for licensed advisers. Nothing in it is financial advice, a recommendation, or an offer, and nothing here should be relied on in place of the product issuer's own documents. Before acting, refer to the product summary, the policy contract and the issuer's own Policy Illustration, and to the lender's facility terms and fee schedule. Where this tool and those documents differ, those documents govern.</p>
-        <p><b>Policy values.</b> Cash values, death benefits and income payouts are read from the Policy Illustration that is loaded and are used exactly as printed; nothing here re-projects the policy. Illustrated crediting rates and non-guaranteed values are not guaranteed, and actual values will differ.</p>
+        <p><b>Policy values.</b> Cash values, death benefits and income payouts are read from the Policy Illustration that is loaded and are used exactly as printed; nothing here re-projects the policy. Illustrated crediting rates and non-guaranteed values are not guaranteed, and actual values will differ. Where a premium other than the illustrated one is keyed in, values are pro-rated.</p>
         <p><b>Financing terms.</b> Rates, loan-to-value limits, margin triggers and cure periods are indicative figures entered into this tool, not an offer of credit. They change without notice and must be confirmed with the lender. Approval is at the lender's discretion and may be restricted to accredited investors. A facility secured on a policy or a portfolio can be called, and the collateral can be liquidated, at the lender's discretion once a margin trigger is reached.</p>
         <p><b>Risks.</b> Leverage magnifies both gains and losses. Borrowing in one currency to hold a policy denominated in another adds exchange-rate risk to an already leveraged position, and the exchange-rate and interest-rate paths shown here are assumptions chosen by the user, not forecasts. Past exchange-rate and interest-rate behaviour is not a guide to the future. An indexed universal life policy carries market risk to its cash value, and surrendering early may return less than the premium paid. A property-secured loan places the property at risk.</p>
         <p><b>Regulatory.</b> Equity term loans are available on private property only — not HDB flats, nor executive condominiums within their minimum occupation period — and are subject to the prevailing loan-to-value, Total Debt Servicing Ratio and tenure rules, tested at the higher of the actual rate or the regulator's stress rate. CPF cannot service such a loan. Some lenders referenced by this tool may be regulated outside Singapore and may not be regulated by the Monetary Authority of Singapore.</p>
@@ -917,7 +921,15 @@ function pfCeiling(){
   const collateral = pfUSD * (p.ltv/100);
   return {pfUSD, collateral, cap: collateral * (p.factor/100)};
 }
-const premiumOf = route => { const pol = POLICY(route); return pol ? pol.premium : 0; };
+/* The adviser can key a premium other than the illustration's: the client is then simply
+   buying a different-sized policy. The policy values are exactly linear in premium (the 330k
+   illustration is 3.3x the 100k one at every year), so the illustration pro-rates faithfully. */
+const premiumOf = route => { const pol = POLICY(route); return pol ? (S.prem[route] ?? pol.premium) : 0; };
+const scaleOf = route => {
+  const pol = POLICY(route);
+  if(!pol || !pol.premium) return 1;
+  return premiumOf(route) / pol.premium;
+};
 
 const ROUTE_META = {
   policy:    {n:"Premium financing",  lender:"the lender", coll:"the policy's own cash value"},
@@ -927,6 +939,8 @@ const ROUTE_META = {
 
 const S = {
   tab:"portfolio", pol:{policy:null, portfolio:null, property:null},
+  /* a keyed premium per route; null keeps the illustration's own */
+  prem:{policy:null, portfolio:null, property:null},
   basis:"current", mode:"inc", horizon:20,
   /* fxUsd is the POLICY leg (facility vs USD) and is the only FX lever on routes 1 and 3.
      rateShock moves the all-in rate in percentage points. */
@@ -1046,16 +1060,17 @@ async function readPdf(file){
 }
 
 /* ---------------- policy series ---------------- */
-function series(policy){
+function series(policy, k){
   if(!policy) return [];
+  k = (k==null || !isFinite(k)) ? 1 : k;                  /* pro-rata on the premium */
   const b=S.basis;
   const acc = policy.acc[b] && policy.acc[b].length ? policy.acc[b] : policy.acc.current;
   if(S.mode==="acc" || !policy.inc[b] || !policy.inc[b].length)
-    return acc.map(r=>({y:r[0],age:r[1],cv:r[3],db:r[4],income:0}));
+    return acc.map(r=>({y:r[0],age:r[1],cv:r[3]*k,db:r[4]*k,income:0}));
   const byYear=new Map(policy.inc[b].map(r=>[r[0],r]));
   return acc.map(r=>{ const i=byYear.get(r[0]);
-    return i ? {y:r[0],age:r[1],cv:i[5],db:i[4],income:i[2]}
-             : {y:r[0],age:r[1],cv:r[3],db:r[4],income:0}; });
+    return i ? {y:r[0],age:r[1],cv:i[5]*k,db:i[4]*k,income:i[2]*k}
+             : {y:r[0],age:r[1],cv:r[3]*k,db:r[4]*k,income:0}; });
 }
 
 /* ---------------- facility sizing, per route ---------------- */
@@ -1129,7 +1144,7 @@ function project(route, over){
   const cU = t => Math.pow(1+aU, t) - 1;
   const cC = t => Math.pow(1+aC, t) - 1;
 
-  const finS = series(POLICY(route));
+  const finS = series(POLICY(route), scaleOf(route));
   const T = Math.max(1, Math.min(S.horizon, finS.length||1));
   const premium = z.premium;
 
@@ -1913,6 +1928,7 @@ function syncRate(){
 /* Derived inputs belong to the route whose illustration they came from. */
 function applyDefaults(route){
   const pol = POLICY(route); if(!pol) return;
+  S.prem[route] = null;
   const y1 = pol.acc.current[0]||pol.acc.alternate[0]||pol.acc.guaranteed[0];
   if(route==="policy"){
     S.day1   = y1 ? y1[3] : Math.round(pol.premium*0.85);
@@ -1922,8 +1938,9 @@ function applyDefaults(route){
   if(route==="portfolio") S.pf.loan = pol.premium;
 }
 function syncInputs(){
-  $("#day1").value=S.day1; $("#outlay").value=S.outlay; $("#ltv").value=S.ltv;
+  $("#day1").value=Math.round(S.day1); $("#outlay").value=Math.round(S.outlay); $("#ltv").value=S.ltv;
   $("#pf-loan").value=Math.round(S.pf.loan);
+  if(document.activeElement!==$("#premium")) $("#premium").value=Math.round(premiumOf(S.tab));
   const pol=POLICY(S.tab);
   if(pol) $("#horizon").max = Math.max(1, pol.acc.current.length||80);
 }
@@ -1934,7 +1951,11 @@ function policySummary(rec, route){
   const bits=[];
   bits.push(rec.issueAge ? `Age ${rec.issueAge}` : "age n/a");
   const term = rec.premiumTerm ? (TERM_SHORT[rec.premiumTerm.toLowerCase()] || rec.premiumTerm.toLowerCase()) : "";
-  bits.push(rec.premium ? `${term?term+" ":""}US$${fmt0(rec.premium)}` : "premium n/a");
+  /* show what is actually being bought when a different premium has been keyed */
+  const k = route ? scaleOf(route) : 1;
+  if(rec.premium && Math.abs(k-1)>0.005)
+    bits.push(`${term?term+" ":""}US$${fmt0(rec.premium*k)} (${fmt0(rec.premium)} illustration × ${k.toFixed(2)})`);
+  else bits.push(rec.premium ? `${term?term+" ":""}US$${fmt0(rec.premium)}` : "premium n/a");
   const firstInc = ["current","alternate","guaranteed"].map(b=>rec.inc[b] && rec.inc[b][0]).find(Boolean);
   if(firstInc){
     /* the table row is the END of the start year, so the age at the start of it is one less */
@@ -2014,6 +2035,18 @@ function init(){
   bindNum("cof", v=>S.cof=v); bindNum("spread-custom", v=>S.spread=v);
   bindNum("outlay", v=>S.outlay=v); bindNum("ltv", v=>S.ltv=v); bindNum("day1", v=>S.day1=v);
   bindNum("horizon", v=>S.horizon=v);
+  /* a bigger policy carries a proportionally bigger facility, so the amounts keyed against the
+     old premium move with it; a blank or zero while typing leaves everything as it was */
+  $("#premium").addEventListener("input",e=>{
+    const v=num(e.target.value), old=premiumOf(S.tab);
+    if(v<=0) return;
+    const r = old ? v/old : 1;
+    S.prem[S.tab]=v;
+    if(S.tab==="policy"){ S.day1*=r; S.outlay*=r; }
+    if(S.tab==="portfolio") S.pf.loan*=r;
+    syncInputs(); render();
+  });
+  $("#premium").addEventListener("blur",e=>{ e.target.value=Math.round(premiumOf(S.tab)); });
   bindNum("pf-value", v=>S.pf.value=v); bindNum("pf-growth", v=>S.pf.growth=v);
   bindNum("pf-rate", v=>S.pf.rate=v); bindNum("pf-loan", v=>S.pf.loan=v);
   bindNum("pr-val", v=>S.pr.val=v); bindNum("pr-out", v=>S.pr.out=v); bindNum("pr-cpf", v=>S.pr.cpf=v);
