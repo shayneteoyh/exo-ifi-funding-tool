@@ -635,7 +635,7 @@ footer.foot b{color:var(--ink-2)}
         <div class="grid2">
           <div class="field"><label for="pf-value">Portfolio value</label><input type="number" id="pf-value" step="10000"></div>
           <div class="field"><label for="pf-ccy">In currency</label><select id="pf-ccy"></select></div>
-          <div class="field"><label for="pf-loan">Premium US$</label><input type="number" id="pf-loan" step="10000"></div>
+          <div class="field"><label for="pf-loan">Actual loan US$</label><input type="number" id="pf-loan" step="10000" min="0"></div>
           <div class="field"><label for="pf-maxdraw-out">Max loan allowed US$</label>
             <input type="text" id="pf-maxdraw-out" readonly tabindex="-1" style="cursor:default"></div>
           <div class="field"><label for="pf-drawn-out">Actual loan <b id="pf-drawn-ccy">CHF</b></label>
@@ -742,7 +742,7 @@ footer.foot b{color:var(--ink-2)}
       <h3>Disclaimers</h3>
       <div class="disc">
         <p><b>Illustration only — not advice.</b> This is a working tool for licensed advisers. Nothing in it is financial advice, a recommendation, or an offer, and nothing here should be relied on in place of the product issuer's own documents. Before acting, refer to the product summary, the policy contract and the issuer's own Policy Illustration, and to the lender's facility terms and fee schedule. Where this tool and those documents differ, those documents govern.</p>
-        <p><b>Policy values.</b> Cash values, death benefits and income payouts are read from the Policy Illustration that is loaded and are used exactly as printed; nothing here re-projects the policy. Illustrated crediting rates and non-guaranteed values are not guaranteed, and actual values will differ. Where a premium other than the illustrated one is keyed in, values are pro-rated.</p>
+        <p><b>Policy values.</b> Cash values, death benefits and income payouts are read from the Policy Illustration that is loaded and are used exactly as printed; nothing here re-projects the policy. Illustrated crediting rates and non-guaranteed values are not guaranteed, and actual values will differ.</p>
         <p><b>Financing terms.</b> Rates, loan-to-value limits, margin triggers and cure periods are indicative figures entered into this tool, not an offer of credit. They change without notice and must be confirmed with the lender. Approval is at the lender's discretion and may be restricted to accredited investors. A facility secured on a policy or a portfolio can be called, and the collateral can be liquidated, at the lender's discretion once a margin trigger is reached.</p>
         <p><b>Risks.</b> Leverage magnifies both gains and losses. Borrowing in one currency to hold a policy denominated in another adds exchange-rate risk to an already leveraged position, and the exchange-rate and interest-rate paths shown here are assumptions chosen by the user, not forecasts. Past exchange-rate and interest-rate behaviour is not a guide to the future. An indexed universal life policy carries market risk to its cash value, and surrendering early may return less than the premium paid. A property-secured loan places the property at risk.</p>
         <p><b>Regulatory.</b> Equity term loans are available on private property only — not HDB flats, nor executive condominiums within their minimum occupation period — and are subject to the prevailing loan-to-value, Total Debt Servicing Ratio and tenure rules, tested at the higher of the actual rate or the regulator's stress rate. CPF cannot service such a loan. Some lenders referenced by this tool may be regulated outside Singapore and may not be regulated by the Monetary Authority of Singapore.</p>
@@ -900,7 +900,7 @@ const YIELD_TIP ="<b>Net income for the year &divide; total interest paid to dat
   + "Net income is that year's policy payout less that year's interest. The denominator is every dollar of interest handed to the lender since inception, so the measure asks what this year's income is returning on the whole cost of the borrowing to date.<br><br>"
   + "It is negative while the policy is still deferring income, turns positive on the first payout year that clears the interest, then settles as a flat interest bill accumulates against a payout that grows.";
 /* Each route carries its own illustration. Route 1 part-funds its policy — the client keys in
-   the cash outlay and the facility covers the rest. Routes 2 and 3 borrow the whole premium. */
+   the cash outlay and the facility covers the rest. Route 2 borrows the premium, or part of it if the adviser keys a smaller loan; route 3 borrows the whole premium. */
 const POLICY = r => S.pol[r];
 /* The currency the facility is measured against. Route 1's collateral is the policy (USD);
    route 2's is the portfolio, so its FX exposure is the loan currency against the portfolio's;
@@ -917,19 +917,7 @@ function pfCeiling(){
   const collateral = pfUSD * (p.ltv/100);
   return {pfUSD, collateral, cap: collateral * (p.factor/100)};
 }
-/* On route 2 the loan amount IS the premium — change it and the client is simply buying a
-   different-sized policy. The policy values are exactly linear in premium (the 330k
-   illustration is 3.3x the 100k one at every year), so the illustration pro-rates faithfully. */
-function premiumOf(route){
-  const pol = POLICY(route); if(!pol) return 0;
-  if(route!=="portfolio") return pol.premium;
-  return S.pf.sizeMode==="ltv" ? pfCeiling().cap : Math.max(0, S.pf.loan);
-}
-const scaleOf = route => {
-  const pol = POLICY(route);
-  if(!pol || !pol.premium) return 1;
-  return premiumOf(route) / pol.premium;
-};
+const premiumOf = route => { const pol = POLICY(route); return pol ? pol.premium : 0; };
 
 const ROUTE_META = {
   policy:    {n:"Premium financing",  lender:"the lender", coll:"the policy's own cash value"},
@@ -947,7 +935,7 @@ const S = {
   ccy:"CHF", spread:1.50, cof:0, sizeMode:"outlay", outlay:100000, ltv:90, day1:0,
   /* route 2 */
   pf:{value:500000, valCcy:"SGD", ltv:71.43, factor:95.99, growth:6, income:0, ccy:"CHF", rate:1.70,
-      loan:0, sizeMode:"loan", res:"sg", drop:0, fxColl:0},
+      loan:0, res:"sg", drop:0, fxColl:0},
   /* route 3 */
   pr:{val:2000000, out:500000, cpf:500000, ltvCap:75, rate:1.60, tenure:25,
       income:20000, debt:0, floor:4.0, costs:2600}
@@ -1058,17 +1046,16 @@ async function readPdf(file){
 }
 
 /* ---------------- policy series ---------------- */
-function series(policy, k){
+function series(policy){
   if(!policy) return [];
-  k = (k==null || !isFinite(k)) ? 1 : k;                  /* pro-rata on the premium */
   const b=S.basis;
   const acc = policy.acc[b] && policy.acc[b].length ? policy.acc[b] : policy.acc.current;
   if(S.mode==="acc" || !policy.inc[b] || !policy.inc[b].length)
-    return acc.map(r=>({y:r[0],age:r[1],cv:r[3]*k,db:r[4]*k,income:0}));
+    return acc.map(r=>({y:r[0],age:r[1],cv:r[3],db:r[4],income:0}));
   const byYear=new Map(policy.inc[b].map(r=>[r[0],r]));
   return acc.map(r=>{ const i=byYear.get(r[0]);
-    return i ? {y:r[0],age:r[1],cv:i[5]*k,db:i[4]*k,income:i[2]*k}
-             : {y:r[0],age:r[1],cv:r[3]*k,db:r[4]*k,income:0}; });
+    return i ? {y:r[0],age:r[1],cv:i[5],db:i[4],income:i[2]}
+             : {y:r[0],age:r[1],cv:r[3],db:r[4],income:0}; });
 }
 
 /* ---------------- facility sizing, per route ---------------- */
@@ -1084,8 +1071,9 @@ function sizing(route){
   if(route==="portfolio"){
     const p=S.pf;
     const {pfUSD, collateral, cap} = pfCeiling();
-    /* the loan is the premium, so it only ever falls short when the portfolio cannot carry it */
-    const want = premium;
+    /* the adviser keys the loan, up to the premium; the portfolio's ceiling can cut it further,
+       and whatever is not borrowed comes from the client */
+    const want = Math.min(Math.max(0, p.loan), premium);
     const loan = Math.max(0, Math.min(want, cap));
     return {loan, cap, premium, over:want>cap+1, want, capped:false,
             capLabel: `${p.ltv}% × ${p.factor}% of the portfolio`,
@@ -1141,7 +1129,7 @@ function project(route, over){
   const cU = t => Math.pow(1+aU, t) - 1;
   const cC = t => Math.pow(1+aC, t) - 1;
 
-  const finS = series(POLICY(route), scaleOf(route));
+  const finS = series(POLICY(route));
   const T = Math.max(1, Math.min(S.horizon, finS.length||1));
   const premium = z.premium;
 
@@ -1482,10 +1470,9 @@ function render(){
     $("#pf-drawn-ccy").textContent = lc;
     $("#pf-drawn-out").value = loc(lc, P.loanLocal);
     $("#pf-maxdraw-out").value = usd(z.cap);
-    const k = scaleOf("portfolio");
     $("#pf-hint").innerHTML = `${pct(z.impliedLTV,1)} of the portfolio`
       + (P.outlay>=1 ? ` · client funds <b>${usd(P.outlay)}</b>` : ` · <b>no cash outlay</b>`)
-      + (Math.abs(k-1)>0.005 ? ` · policy pro-rated <b>${k.toFixed(2)}\u00d7</b> the illustration` : ``)
+      + (p.loan>z.premium+1 ? ` · <span style="color:var(--crit)">loan limited to the ${usd(z.premium)} premium</span>` : ``)
       + (z.over ? ` <span style="color:var(--crit)">· ${usd(z.want-z.cap)} over the ceiling</span>` : ``);
   }
   if(route==="property"){
@@ -1522,7 +1509,7 @@ function render(){
   const netRecv   = rowsT0.reduce((s,r)=>s+Math.max(0, r.net),0);
   const ownOut = P.outlay + shortfall;
   const cashBack = P.netFin + netRecv;
-  const outSub = [P.outlay>0 ? `${usd(P.outlay)} ${route==="policy"?"put in at the start":"of premium and costs not borrowed"}` : ``,
+  const outSub = [P.outlay>0 ? `${usd(P.outlay)} ${route==="policy"?"put in at the start":route==="portfolio"?"of premium not borrowed":"of premium and costs not borrowed"}` : ``,
                   shortfall>0 ? `${usd(shortfall)} of ${route==="property"?"repayments":"interest"} the policy income did not cover` : ``]
                  .filter(Boolean).join(" + ") || `none — the loan and the policy income cover everything`;
   const multX = m => (Math.abs(m)>=100 ? Math.round(m).toLocaleString("en-US") : m.toFixed(Math.abs(m)>=10?1:2)) + "\u00d7";
@@ -1548,7 +1535,7 @@ function render(){
   } else if(P.forced) banner=`<div class="banner crit"><b>${route==="policy"?"Forced surrender":"Forced liquidation"} risk.</b> The margin ratio reaches ${pct(rT.hardAt,0)} in policy year ${P.forced.y} (age ${P.forced.age}).</div>`;
   else if(P.call) banner=`<div class="banner warn"><b>Margin call in year ${P.call.y}</b> (age ${P.call.age}, ratio ${pct(P.call.risk,1)}). Cash has to go in within ${route==="policy"?"5 business days":"2 market days"}.</div>`;
   else if(P.riskNow>=rT.callAt) banner=`<div class="banner crit"><b>The facility starts in a margin call.</b> Day-1 ratio ${pct(P.riskNow,1)} against a ${pct(rT.callAt,0)} trigger.</div>`;
-  if(!banner && z.over) banner=`<div class="banner warn"><b>Capped by ${z.capLabel}.</b> The facility cannot cover the whole premium on these inputs.</div>`;
+  if(!banner && z.over) banner=`<div class="banner warn"><b>Capped by ${z.capLabel}.</b> The facility cannot cover the loan keyed on these inputs, so the client funds the difference.</div>`;
   $("#banner-slot").innerHTML = banner;
 
   /* ---- net position chart ---- */
@@ -1931,7 +1918,7 @@ function applyDefaults(route){
     S.day1   = y1 ? y1[3] : Math.round(pol.premium*0.85);
     S.outlay = Math.round(pol.premium*0.3/1000)*1000;   /* a starting point; the adviser keys the real one */
   }
-  /* on route 2 the loan IS the premium, so it starts at the illustration's own */
+  /* route 2's loan starts at the full premium; the adviser can key less to part-fund */
   if(route==="portfolio") S.pf.loan = pol.premium;
 }
 function syncInputs(){
@@ -1947,11 +1934,7 @@ function policySummary(rec, route){
   const bits=[];
   bits.push(rec.issueAge ? `Age ${rec.issueAge}` : "age n/a");
   const term = rec.premiumTerm ? (TERM_SHORT[rec.premiumTerm.toLowerCase()] || rec.premiumTerm.toLowerCase()) : "";
-  /* route 2 sizes the policy off the loan field, so show what is actually being bought */
-  const k = route ? scaleOf(route) : 1;
-  if(rec.premium && Math.abs(k-1)>0.005)
-    bits.push(`${term?term+" ":""}US$${fmt0(rec.premium*k)} (${fmt0(rec.premium)} illustration × ${k.toFixed(2)})`);
-  else bits.push(rec.premium ? `${term?term+" ":""}US$${fmt0(rec.premium)}` : "premium n/a");
+  bits.push(rec.premium ? `${term?term+" ":""}US$${fmt0(rec.premium)}` : "premium n/a");
   const firstInc = ["current","alternate","guaranteed"].map(b=>rec.inc[b] && rec.inc[b][0]).find(Boolean);
   if(firstInc){
     /* the table row is the END of the start year, so the age at the start of it is one less */
